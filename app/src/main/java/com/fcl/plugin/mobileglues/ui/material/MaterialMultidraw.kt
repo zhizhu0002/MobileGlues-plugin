@@ -364,14 +364,19 @@ fun MultidrawBenchDialogs(controller: AppController) {
                         )
                     }
                     Text(
-                        text = if (s.attempt > 1) {
-                            stringResource(
+                        text = when {
+                            // 退让优先于「第几次测量」：上一趟整份作废了，说「第 2 次」
+                            // 会让人以为前面那趟还算数。
+                            s.retryingAtSections != null -> stringResource(
+                                R.string.md_bench_running_smaller,
+                                s.retryingAtSections,
+                            )
+                            s.attempt > 1 -> stringResource(
                                 R.string.md_bench_running_retry,
                                 s.attempt,
                                 AppController.BENCH_MAX_ATTEMPTS,
                             )
-                        } else {
-                            stringResource(R.string.md_bench_running_msg)
+                            else -> stringResource(R.string.md_bench_running_msg)
                         },
                         modifier = Modifier.padding(start = 16.dp),
                     )
@@ -397,10 +402,11 @@ fun MultidrawBenchDialogs(controller: AppController) {
                         },
                     )
                     // 驱动错了就不只是「不够准」，是整份名次搬不过去，得说在最前面。
-                    if (s.wrongDriver) {
+                    val angleNote = s.angleNote
+                    if (angleNote != null) {
                         Spacer(Modifier.heightIn(min = 12.dp))
                         Text(
-                            text = stringResource(R.string.md_bench_wrong_driver),
+                            text = stringResource(angleNote.messageRes),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.error,
                         )
@@ -428,7 +434,7 @@ fun MultidrawBenchDialogs(controller: AppController) {
                 TextButton(onClick = controller::adoptBenchResult) {
                     Text(
                         stringResource(
-                            if (s.anyNoisy || s.wrongDriver) {
+                            if (s.anyNoisy || s.driverMismatch) {
                                 R.string.md_bench_adopt_anyway
                             } else {
                                 R.string.md_bench_adopt
