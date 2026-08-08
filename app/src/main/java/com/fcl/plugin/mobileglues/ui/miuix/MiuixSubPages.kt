@@ -36,7 +36,9 @@ import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.Icon
 import top.yukonga.miuix.kmp.basic.IconButton
 import top.yukonga.miuix.kmp.basic.Text
+import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.utils.scrollEndHaptic
 
 /** GL 信息页（Miuix）。 */
 @Composable
@@ -44,6 +46,8 @@ fun MiuixGlInfoPage(controller: AppController) {
     val context = LocalContext.current
     val info by controller.glInfo.collectAsStateWithLifecycle()
     val loading by controller.glInfoLoading.collectAsStateWithLifecycle()
+    val needsAngle by controller.glInfoNeedsAngle.collectAsStateWithLifecycle()
+    val angleState by controller.glInfoAngle.collectAsStateWithLifecycle()
 
     LaunchedEffect(Unit) { controller.loadGlInfo() }
 
@@ -74,15 +78,56 @@ fun MiuixGlInfoPage(controller: AppController) {
                     modifier = Modifier.padding(top = 48.dp),
                 )
             } else {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = MiuixScreenPadding),
-                ) {
-                    MiuixSelectableBody(
-                        text = info.orEmpty(),
-                        modifier = Modifier.padding(18.dp),
-                    )
+                Column {
+                    // ANGLE 随启动器走，本 App 里没有；不借的话这一页讲的是系统驱动，
+                    // 不是游戏里那个。借不借由用户点——不能因为他只想看一眼就自作主张
+                    // 把别人的原生代码载进来。
+                    if (needsAngle) {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = MiuixScreenPadding, vertical = 4.dp),
+                        ) {
+                            Column(modifier = Modifier.padding(18.dp)) {
+                                Text(
+                                    text = stringResource(R.string.md_glinfo_needs_angle),
+                                    style = MiuixTheme.textStyles.body2,
+                                    color = MiuixTheme.colorScheme.primary,
+                                )
+                                TextButton(
+                                    text = stringResource(R.string.md_glinfo_borrow),
+                                    onClick = { controller.reloadGlInfoWithAngle() },
+                                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                                )
+                            }
+                        }
+                    } else if (angleState == AppController.GlInfoAngle.Borrowed) {
+                        Text(
+                            text = stringResource(R.string.md_glinfo_borrowed),
+                            style = MiuixTheme.textStyles.footnote2,
+                            color = MiuixTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .padding(horizontal = MiuixScreenPadding, vertical = 4.dp),
+                        )
+                    } else if (angleState == AppController.GlInfoAngle.BorrowIneffective) {
+                        Text(
+                            text = stringResource(R.string.md_glinfo_borrow_ineffective),
+                            style = MiuixTheme.textStyles.footnote2,
+                            color = MiuixTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .padding(horizontal = MiuixScreenPadding, vertical = 4.dp),
+                        )
+                    }
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = MiuixScreenPadding),
+                    ) {
+                        MiuixSelectableBody(
+                            text = info.orEmpty(),
+                            modifier = Modifier.padding(18.dp),
+                        )
+                    }
                 }
             }
         }
@@ -195,6 +240,8 @@ private fun MiuixSubPage(
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                // 甩到顶或底时给一下振动——HyperOS 的滚动到此为止就是这个手感。
+                .scrollEndHaptic()
                 .verticalScroll(rememberScrollState()),
         ) {
             content()

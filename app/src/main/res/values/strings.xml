@@ -35,13 +35,61 @@
     <string name="option_no_error_disable_pri">Ignore shader/program error</string>
     <string name="option_no_error_disable_sec">Ignore shader/program/framebuffer error</string>
 
-    <string name="option_multidraw">MultiDraw backends</string>
-    <string name="option_multidraw_summary_auto">All automatic</string>
-    <string name="option_multidraw_summary_custom">%1$d customised</string>
-    <string name="option_multidraw_disable">Never use these backends</string>
-    <string name="option_multidraw_disable_helper">A disabled backend is treated as if the driver did not have it.</string>
+    <string name="option_multidraw">MultiDraw strategy order</string>
+    <string name="md_summary_default">Default order</string>
+    <string name="md_summary_global_default">Default global order</string>
+    <string name="md_summary_global_custom">Custom global order</string>
+    <string name="md_summary_exception_count">%1$d exception(s)</string>
+    <string name="md_order_hint">Higher means preferred; a strategy that fails at runtime degrades along the same order.</string>
+    <string name="md_order_drag_handle">Drag to reorder</string>
+    <string name="md_item_native">Native / Native EXT</string>
+    <string name="md_item_native_desc">Matches the same-shaped GLES core or extension function, when one exists</string>
+    <string name="md_exceptions_group">Per-function exceptions</string>
+    <string name="md_exception_on">Independent order</string>
+    <string name="md_exception_off">Follows the global order</string>
+    <string name="md_bench_run_all">Benchmark every function</string>
+    <string name="md_bench_run_entry">Benchmark this function</string>
+    <string name="md_bench_nothing">no strategy could be measured on this device</string>
+    <string name="md_reset_default">Restore default</string>
+    <string name="md_bench_running_title">Benchmark</string>
+    <string name="md_bench_running_msg">Measuring each strategy in turn. This takes about 8 seconds; keep the screen on and leave the device idle.</string>
+    <string name="md_bench_result_title">Benchmark results</string>
+    <string name="md_bench_result_all_intro">Each function was measured separately and sorted fastest first (×1.00 is fastest within that function). Adopting enables an independent order for each function below; the global order is unchanged.</string>
+    <string name="md_bench_result_entry_intro">Strategies for %1$s, sorted fastest first by measured cost (×1.00 is fastest). Adopt as this function\'s independent order?</string>
+    <string name="md_bench_cost">×%1$s</string>
+    <string name="md_bench_unmeasured">Not measurable on this device; placed last</string>
+    <string name="md_bench_quality">%1$d rounds per strategy, run-to-run spread ±%2$s%%</string>
+    <string name="md_bench_noisy">Measured %1$d times; the spread never reached the ±15%% required for a confident ranking. The steadiest run was ±%2$s%%. Strategies with similar results may be ordered incorrectly. Re-running with the device idle and cool will give a better result.</string>
+    <string name="md_bench_running_retry">Spread too wide to rank. Re-measuring on a larger scene (%1$d/%2$d)…</string>
+    <string name="md_bench_running_smaller">GL context lost; that run is void. Restarting at %1$d sections…</string>
+    <string name="md_bench_adopt_anyway">Adopt anyway</string>
+    <string name="md_bench_adopt">Adopt</string>
+    <string name="md_bench_discard">Discard</string>
+    <string name="md_bench_failed">Benchmark failed: %1$s</string>
 
-    <string name="md_backend_auto">Auto</string>
+    <string name="md_bench_outdated">The GLES driver has changed. The current MultiDraw order was measured on the previous driver; re-running the benchmark is recommended.</string>
+    <string name="md_bench_outdated_action">Benchmark</string>
+    <string name="md_home_untuned">MultiDraw is using the default order</string>
+    <string name="md_home_untuned_desc">The default order reflects what is usually fastest, not what is fastest on this device. A benchmark measures each function here and sorts it accordingly.</string>
+    <string name="md_home_untuned_action">Run benchmark</string>
+
+    <string name="md_angle_title">Borrow ANGLE from a launcher</string>
+    <string name="md_angle_intro">Your settings run MobileGlues on ANGLE, but ANGLE ships with the launcher rather than with this app. To measure the driver the game actually uses, the benchmark must load ANGLE from an installed launcher.</string>
+    <string name="md_angle_trust"><![CDATA[<b>Choose a source you fully trust.</b> Its native code will be loaded into this app\'s process and run with this app\'s permissions. Select only a launcher you installed yourself from a trusted source.]]></string>
+    <string name="md_angle_source_version">version %1$s</string>
+    <string name="md_angle_none">No installed launcher carrying ANGLE was found. Install one (Fold Craft Launcher or Zalith Launcher), or benchmark on the system driver — note that this is not the driver the game will use.</string>
+    <string name="md_angle_skip">Use the system driver</string>
+    <string name="md_angle_last_used">Last used</string>
+    <string name="md_glinfo_needs_angle">Read from the system driver. Your settings run the game on ANGLE, so the extensions and limits below are not the ones MobileGlues will see.</string>
+    <string name="md_glinfo_borrow">Borrow ANGLE and read again</string>
+    <string name="md_glinfo_borrowed">Read through ANGLE borrowed from a launcher.</string>
+    <string name="md_glinfo_borrow_ineffective">The borrowed ANGLE was not used (device unsupported, or it failed to load); this page describes the system driver.</string>
+    <string name="md_bench_wrong_driver">Measured on the system driver, but the game runs on ANGLE. This order does not apply.</string>
+    <string name="md_bench_context_lost">The driver lost the GL context, and continued to do so at smaller scene sizes. The run was abandoned; nothing measured after the loss is valid.</string>
+    <string name="md_bench_process_died">The query process terminated: the renderer failed on this driver. No results were produced.</string>
+    <string name="md_bench_borrow_failed">The borrowed ANGLE could not be loaded. This run measured the system driver, not the driver the game will use.</string>
+    <string name="md_bench_borrow_unsupported">This device cannot run ANGLE, so the borrow was ignored. The game will also use the system driver, so this order still applies.</string>
+
     <string name="md_backend_unroll">Draw one by one</string>
     <string name="md_backend_basevertex" translatable="false">BaseVertex</string>
     <string name="md_backend_indirect" translatable="false">Indirect</string>
@@ -112,11 +160,12 @@
     <string name="warning_revoke_authorization">This takes back both the storage authorization and your acceptance of the privacy policy. Nothing in the MG folder is deleted, but you will have to accept the policy and grant access again before you can continue. Are you sure you want to continue?</string>
 
     <string name="menu_item_remove">Remove MobileGlues related files</string>
-    <string name="remove_mg_files_message"><![CDATA[This action will completely delete all files associated with MobileGlues. This includes:<br/><br/>
- • <b>All configuration files:</b> Any of your custom settings, preferences, and possible configuration files required for the application to run will be removed.<br/>
- • <b>Cache files:</b> The GLSL cache generated by MobileGlues during runtime (used to speed up loading) will be cleared.<br/>
- • <b>Log files:</b> Log files generated during the operation of MobileGlues will be deleted.<br/><br/>
-Please note, this action is <b><font color="@colorError">irreversible</font></b>. Once you click "OK", all the files mentioned above will be permanently deleted and cannot be recovered. If you are going to use MobileGlues again in the future, you will need to reconfigure it.<br/><br/>
+    <string name="remove_mg_files_message"><![CDATA[This action deletes every file MobileGlues and this plugin have created for themselves in the MG folder. This includes:<br/><br/>
+ • <b>Configuration:</b> config.json, plus any leftover temporary write file or corrupt backup.<br/>
+ • <b>Cache:</b> the GLSL cache MobileGlues builds at runtime (glsl_cache.tmp, used to speed up loading).<br/>
+ • <b>Logs and stats:</b> the runtime log (latest.log) and the launch-count file (stats.json).<br/><br/>
+Only these files — the ones MobileGlues and this plugin created themselves — are deleted; anything else you placed in the MG folder is left untouched. If the MG folder ends up empty afterward, the folder itself is removed too.<br/><br/>
+Please note, this action is <b><font color="@colorError">irreversible</font></b>. Once you click "OK", the files above will be permanently deleted and cannot be recovered. If you are going to use MobileGlues again in the future, you will need to reconfigure it.<br/><br/>
 <b><font color="@colorError">Are you sure you want to continue?</font></b>]]></string>
     <string name="ok">OK</string>
     <string name="ok_with_countdown">OK (%d s)</string>

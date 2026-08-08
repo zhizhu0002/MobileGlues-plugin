@@ -9,9 +9,13 @@ import com.fcl.plugin.mobileglues.BuildConfig
 import com.fcl.plugin.mobileglues.DeviceInfo
 import com.fcl.plugin.mobileglues.DeviceInfoProvider
 import com.fcl.plugin.mobileglues.MGApplication
+import com.fcl.plugin.mobileglues.MGBench
 import com.fcl.plugin.mobileglues.MGInfoGetter
 import com.fcl.plugin.mobileglues.R
 import com.fcl.plugin.mobileglues.settings.AngleConfig
+import com.fcl.plugin.mobileglues.settings.AngleProvider
+import com.fcl.plugin.mobileglues.MgQuery
+import com.fcl.plugin.mobileglues.settings.AngleSource
 import com.fcl.plugin.mobileglues.settings.AuthController
 import com.fcl.plugin.mobileglues.settings.AuthMethod
 import com.fcl.plugin.mobileglues.settings.ConfigLoadResult
@@ -24,19 +28,30 @@ import com.fcl.plugin.mobileglues.settings.GlslCacheSize
 import com.fcl.plugin.mobileglues.settings.MGConfig
 import com.fcl.plugin.mobileglues.settings.MgStats
 import com.fcl.plugin.mobileglues.settings.MultidrawBackend
+import com.fcl.plugin.mobileglues.settings.MultidrawBenchAnalyzer
+import com.fcl.plugin.mobileglues.settings.MultidrawBenchQuality
+import com.fcl.plugin.mobileglues.settings.MultidrawBenchReport
 import com.fcl.plugin.mobileglues.settings.MultidrawEntry
+import com.fcl.plugin.mobileglues.settings.MultidrawOrderItem
+import com.fcl.plugin.mobileglues.settings.MultidrawSettings
 import com.fcl.plugin.mobileglues.settings.NoErrorConfig
+import com.fcl.plugin.mobileglues.settings.RankedItem
 import com.fcl.plugin.mobileglues.settings.SponsorPrompt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -127,6 +142,9 @@ class AppController(
     private val context: Context,
     private val launcher: AuthFlowLauncher,
 ) {
+
+    /** 渲染器查询的一次性进程通道；跑分与 GL 信息共用（互斥地）。 */
+    private val mgQuery = MgQuery(context)
 
     val pluginConfig = app.pluginConfigStore
     val configStore = app.configStore
@@ -403,9 +421,24 @@ class AppController(
             val approved = target != AngleConfig.ForceEnable ||
                 !DeviceInfoProvider.isAdreno740(context) ||
                 confirm(R.string.warning_adreno_740_angle)
-            if (approved) update { it.copy(angle = target) }
+            if (!approved) return@launch
+            update { it.copy(angle = target) }
+            // 换了驱动，之前那份排序是在另一个驱动上量出来的。只有用户自己调过或跑过分
+            // 才值得说这句——默认顺序本来就不是量出来的，换驱动也谈不上过期。
+            if (current.multidraw != MultidrawSettings.Default) {
+                mutableBenchOutdated.tryEmit(Unit)
+            }
         }
     }
+
+    /**
+     * ANGLE 模式变了，而手上这份 MultiDraw 排序是在旧驱动上定的。
+     *
+     * 用 SharedFlow 而不是状态位：这是一次「刚刚发生了什么」的通知，用户看过就过去了，
+     * 不该在重组或返回这一页时再冒出来一次。
+     */
+    private val mutableBenchOutdated = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val benchOutdated: MutableSharedFlow<Unit> = mutableBenchOutdated
 
     fun selectNoError(target: NoErrorConfig) = update { it.copy(noError = target) }
 
@@ -479,12 +512,403 @@ class AppController(
         }
     }
 
-    fun selectMultidrawBackend(entry: MultidrawEntry, backend: MultidrawBackend) {
-        update { it.copy(multidraw = it.multidraw.with(entry, backend)) }
+    // ---- MultiDraw 排序 ----
+
+    /** 全局排序里把第 [from] 项拖到第 [to] 位。 */
+    fun moveMultidrawGlobalItem(from: Int, to: Int) {
+        update {
+            val order = it.multidraw.globalOrder.toMutableList()
+            if (!order.moveItem(from, to)) return@update it
+            it.copy(multidraw = it.multidraw.withGlobalOrder(order))
+        }
     }
 
-    fun setMultidrawBackendDisabled(backend: MultidrawBackend, disabled: Boolean) {
-        update { it.copy(multidraw = it.multidraw.withBackendDisabled(backend, disabled)) }
+    fun resetMultidrawGlobalOrder() {
+        update { it.copy(multidraw = it.multidraw.withGlobalOrder(MultidrawOrderItem.DefaultOrder)) }
+    }
+
+    fun setMultidrawException(entry: MultidrawEntry, enabled: Boolean) {
+        update { it.copy(multidraw = it.multidraw.withException(entry, enabled)) }
+    }
+
+    /** 把某个函数的例外排序退回它的默认值——全局排序在这个函数上的展开。 */
+    fun resetMultidrawExceptionOrder(entry: MultidrawEntry) {
+        update {
+            it.copy(
+                multidraw = it.multidraw
+                    .withExceptionOrder(entry, it.multidraw.globalOrderFor(entry)),
+            )
+        }
+    }
+
+    /** 某函数的例外排序里把第 [from] 项拖到第 [to] 位。 */
+    fun moveMultidrawExceptionItem(entry: MultidrawEntry, from: Int, to: Int) {
+        update {
+            val order = it.multidraw.effectiveOrderFor(entry).toMutableList()
+            if (!order.moveItem(from, to)) return@update it
+            it.copy(multidraw = it.multidraw.withExceptionOrder(entry, order))
+        }
+    }
+
+    /** 拖动排序是「抽出来再插进去」，不是相邻交换——跨多位时两者结果不一样。 */
+    private fun <T> MutableList<T>.moveItem(from: Int, to: Int): Boolean {
+        if (from == to || from !in indices || to !in indices) return false
+        add(to, removeAt(from))
+        return true
+    }
+
+    // ---- MultiDraw 跑分 ----
+
+    /**
+     * 跑分对象：所有函数各测各的，或只测某一个函数。
+     *
+     * 没有「测出一份全局排序」这回事了：全局排序要一个次序同时适配五个函数，而跑分本来就是
+     * 分函数测的，硬合成一份反而把每个函数上都不是最优的顺序说成最优。
+     */
+    sealed interface BenchTarget {
+        data object AllEntries : BenchTarget
+        data class Entry(val entry: MultidrawEntry) : BenchTarget
+    }
+
+    /**
+     * 跑分流程状态：null（无）→ Running →（Done | Failed），弹窗由 UI 依此渲染。
+     *
+     * [Running.progress] 是 0f..1f；渲染器版本太老、拿不到进度时为 null，UI 退回不定进度条。
+     */
+    sealed interface BenchState {
+        data class Running(
+            val target: BenchTarget,
+            val progress: Float? = null,
+            /** 第几次测量（1 起）。抖得厉害时 native 会放大场景重测，最多 [BENCH_MAX_ATTEMPTS] 次。 */
+            val attempt: Int = 1,
+            /**
+             * 上一趟把 GL 上下文撑爆了，这一趟在更小的场景上从头再来。
+             *
+             * 是「重来」不是「继续」：微秒数随场景规模变，两种规模下的数字摆在一起排名
+             * 就是拿两把尺子量。所以崩掉那一趟的结果整份作废。
+             */
+            val retryingAtSections: Int? = null,
+        ) : BenchState
+
+        data class Done(
+            val target: BenchTarget,
+            /** 每个函数一份排名，按 [MultidrawEntry] 的声明顺序。 */
+            val rankings: Map<MultidrawEntry, List<RankedItem<MultidrawBackend>>>,
+            /** 每个函数各自的成色：测了几轮、抖多少、是不是抖到没法信。 */
+            val quality: Map<MultidrawEntry, MultidrawBenchQuality> = emptyMap(),
+            /** 这次测量与 ANGLE 的关系里有值得告诉用户的一句话；null = 一切如预期。 */
+            val angleNote: BenchAngleNote? = null,
+        ) : BenchState {
+            /** 有函数抖到压不下去，采用这份结果就得用户自己拍板。 */
+            val anyNoisy: Boolean get() = quality.values.any { it.noisy }
+
+            /** 测的驱动和游戏要用的不是同一个，这份名次搬过去不成立。 */
+            val driverMismatch: Boolean
+                get() = angleNote == BenchAngleNote.SystemInsteadOfAngle ||
+                    angleNote == BenchAngleNote.BorrowFailed
+        }
+
+        data class Failed(val message: String) : BenchState
+    }
+
+    /**
+     * 跑分结束后关于驱动的那句话。三种都不是错误状态——错误走 [BenchState.Failed]——
+     * 而是「你以为测的驱动」和「实际测的驱动」之间需要说明的差异。
+     */
+    enum class BenchAngleNote(@param:StringRes val messageRes: Int) {
+        /** 配置会让游戏用 ANGLE，而这次（用户自己选的）测的是系统驱动。 */
+        SystemInsteadOfAngle(R.string.md_bench_wrong_driver),
+
+        /** 借了 ANGLE 但没加载成（来源损坏、被启动器更新掉了……），实测是系统驱动。 */
+        BorrowFailed(R.string.md_bench_borrow_failed),
+
+        /** 设备过不了 ANGLE 探测，借用被渲染器忽略；游戏同样会用系统驱动，结果依然有效。 */
+        BorrowUnsupported(R.string.md_bench_borrow_unsupported),
+    }
+
+    private val mutableBenchState = MutableStateFlow<BenchState?>(null)
+    val benchState: StateFlow<BenchState?> = mutableBenchState.asStateFlow()
+
+    /**
+     * MultiDraw 还是出厂那份顺序——没人调过，也没采用过跑分结果。
+     *
+     * 默认顺序是照着「一般来说什么快」定的，不是在这台设备上量出来的，所以首页可以轻轻
+     * 提一句。一旦排序变成非默认（自己拖过，或采用了跑分），这条提示自己就消失了。
+     */
+    val multidrawUntuned: StateFlow<Boolean> = configStore.config
+        .map { it != null && it.multidraw == MultidrawSettings.Default }
+        .stateIn(scope, SharingStarted.Eagerly, false)
+
+    /** 借 ANGLE 是为了哪件事：跑分，还是查 MobileGlues 信息。 */
+    sealed interface AngleUse {
+        data class Bench(val target: BenchTarget) : AngleUse
+        data object GlInfo : AngleUse
+    }
+
+    /**
+     * 该选 ANGLE 来源了。
+     *
+     * 每一次都问，不因为上次信过就替他决定——载入的是另一个应用的原生代码，而那个应用
+     * 随时可能被更新成别的东西。上次选的只是排在最前面并标出来，省一次找。
+     */
+    data class AngleSourcePrompt(
+        val use: AngleUse,
+        val sources: List<AngleSource>,
+        val lastChosen: String?,
+    )
+
+    private val mutableAngleSourcePrompt = MutableStateFlow<AngleSourcePrompt?>(null)
+    val angleSourcePrompt: StateFlow<AngleSourcePrompt?> = mutableAngleSourcePrompt.asStateFlow()
+
+    /** 弹一次来源选择：上次选过的排最前，其余按发现顺序。 */
+    private fun promptForAngle(use: AngleUse) {
+        val last = pluginConfig.angleSourcePackage.value
+        val found = AngleProvider.sources(context)
+        mutableAngleSourcePrompt.value = AngleSourcePrompt(
+            use = use,
+            sources = found.sortedByDescending { it.packageName == last },
+            lastChosen = last,
+        )
+    }
+
+    /**
+     * 配置最终会用 ANGLE 吗。
+     *
+     * 与 native 的判断保持一致：强制启用就是用，「尽可能启用」要设备支持才用——后者本 App
+     * 判断不了（那要问 Vulkan 和 GPU 型号），所以按会用来算，宁可多问一次也别测错驱动。
+     */
+    private fun benchNeedsAngle(): Boolean = when (configStore.config.value?.angle) {
+        AngleConfig.ForceEnable, AngleConfig.EnableIfPossible -> true
+        else -> false
+    }
+
+    /**
+     * 立即跑分。渲染器被 dlopen 进本进程、在同一块 GPU 上轮流测量每种实现，
+     * 结束后弹出推荐排序，用户点「采用」才写入配置。
+     *
+     * 配置若要用 ANGLE，得先借到 ANGLE：它随启动器分发，本 App 里没有，而渲染器借不到时
+     * 会不声不响退回系统驱动——那样测出来的名次搬进游戏里根本不成立。所以先问用户信任谁。
+     *
+     * native 侧默认花 8 秒把每个候选反复测上几十轮再取中位数，所以这里要边跑边报进度。
+     */
+    fun runMultidrawBench(target: BenchTarget) {
+        if (mutableBenchState.value is BenchState.Running) return
+        if (benchNeedsAngle()) {
+            promptForAngle(AngleUse.Bench(target))
+            return
+        }
+        startMultidrawBench(target, null)
+    }
+
+    /** 用户选定了这一次要信任的来源：记下它（下次排最前），然后把刚才拦下的事接着做。 */
+    fun confirmAngleSource(source: AngleSource) {
+        val pending = mutableAngleSourcePrompt.value ?: return
+        pluginConfig.setAngleSourcePackage(source.packageName)
+        mutableAngleSourcePrompt.value = null
+        resumeWithAngle(pending.use, source.libraryDir)
+    }
+
+    /** 一个来源都不信（或一个都没有）：照样做，但结果会写明这是系统驱动上的。 */
+    fun continueWithoutAngle() {
+        val pending = mutableAngleSourcePrompt.value ?: return
+        mutableAngleSourcePrompt.value = null
+        resumeWithAngle(pending.use, null)
+    }
+
+    fun dismissAngleSourcePrompt() {
+        mutableAngleSourcePrompt.value = null
+    }
+
+    private fun resumeWithAngle(use: AngleUse, angleDirectory: String?) {
+        when (use) {
+            is AngleUse.Bench -> startMultidrawBench(use.target, angleDirectory)
+            is AngleUse.GlInfo -> startGlInfo(angleDirectory)
+        }
+    }
+
+    private fun startMultidrawBench(target: BenchTarget, angleDirectory: String?) {
+        if (mutableBenchState.value is BenchState.Running) return
+        mutableBenchState.value = BenchState.Running(target)
+        scope.launch {
+            val directory = app.cacheExporter.export().getOrElse { app.cacheExporter.directory }
+            val report = runBenchWithBackoff(target, directory.path, angleDirectory)
+            val rankings = when (target) {
+                is BenchTarget.AllEntries -> MultidrawEntry.entries
+                    .associateWith { MultidrawBenchAnalyzer.rankEntry(report, it) }
+                    // 一个方案都没测出来的函数没什么可采用的——那份「排名」就是默认顺序本身。
+                    .filterValues { ranking -> ranking.any { it.relativeCost != null } }
+                is BenchTarget.Entry ->
+                    mapOf(target.entry to MultidrawBenchAnalyzer.rankEntry(report, target.entry))
+            }
+            mutableBenchState.value = when {
+                report.error != null -> BenchState.Failed(benchErrorMessage(report.error))
+                rankings.isEmpty() -> BenchState.Failed(
+                    context.getString(R.string.md_bench_failed, context.getString(R.string.md_bench_nothing)),
+                )
+                else -> BenchState.Done(
+                    target = target,
+                    rankings = rankings,
+                    quality = report.quality.filterKeys { it in rankings },
+                    angleNote = benchAngleNote(report, borrowed = angleDirectory != null),
+                )
+            }
+        }
+    }
+
+    /**
+     * 跑一趟；上下文被撑爆就换个更小的场景从头再跑一趟。
+     *
+     * 为什么退让必须发生在这一层，而不是渲染器内部：撑爆的不只是 GL 上下文，还有它底下
+     * 那个 VkDevice。同一个进程里再建一个是碰运气，而 [MgQuery] 每次绑定都是一个全新的
+     * 查询进程——干净是结构给的，不是驱动给的。
+     *
+     * 退让也一定是「重来」而不是「接着跑」：微秒数随场景规模变，两种规模的数字混在一份
+     * 排名里就是拿两把尺子量同一件事。崩掉那一趟的结果整份丢掉。
+     *
+     * 上限只活在这一次点击里，不落盘。设备当时忙不忙、温度高不高都会挪动那条线，把某一
+     * 次的坏运气记成这台机器的属性，往后每一次跑分都要替它背着。
+     */
+    private suspend fun runBenchWithBackoff(
+        target: BenchTarget,
+        mgDirectory: String,
+        angleDirectory: String?,
+    ): MultidrawBenchReport {
+        var start = BENCH_START_SECTIONS
+        var ceiling = 0                     // 0 = 还没撞到过天花板
+        var report = runBenchOnce(mgDirectory, angleDirectory, start, ceiling)
+
+        var retries = 0
+        while (report.error == "context-lost" && retries < BENCH_MAX_BACKOFFS) {
+            // 渲染器报的是「撑爆时场景多大」。它以下的第一档就是本次的上限，此后不再越过。
+            val crashed = report.sections.takeIf { it > 0 } ?: start
+            val next = crashed / 2
+            if (next < BENCH_MIN_SECTIONS) break
+
+            ++retries
+            start = next
+            ceiling = next
+            mutableBenchState.value = BenchState.Running(target, retryingAtSections = next)
+            report = runBenchOnce(mgDirectory, angleDirectory, start, ceiling)
+        }
+        return report
+    }
+
+    /** 一趟：绑一个查询进程、跑完、解绑（进程随之自杀）。 */
+    private suspend fun runBenchOnce(
+        mgDirectory: String,
+        angleDirectory: String?,
+        startSections: Int,
+        maxSections: Int,
+    ): MultidrawBenchReport = try {
+        // 跑在一次性的查询进程里（见 MgQuery）：渲染器只在初次载入时读 MG_ANGLE_DIR
+        // 和配置，本进程里跑第二次就永远是第一次的驱动。binder 调用是阻塞的，占的是
+        // IO 线程；查询进程崩了（驱动崩溃）这边收到异常，兜成一份错误报告。
+        mgQuery.use { query ->
+            // coroutineScope 而不是外层的 scope：测量和轮询都是这一趟的孩子，函数
+            // 返回时它们必须已经收干净——退让重来会再起一趟，两趟的轮询协程重叠着
+            // 写同一个 benchState 就会互相盖掉。
+            coroutineScope {
+                // 这里必须自己吞掉异常。async 一旦失败就立刻把异常抛给父 scope，
+                // await() 外面的 try/catch 接到的只是副本——父 scope 已经炸了，
+                // 整个 App 跟着崩。查询进程本来就可能死（驱动在里面崩溃正是它存在
+                // 的理由之一），所以失败在这里就变成一份错误报告。
+                val measuring = async(Dispatchers.IO) {
+                    runCatching {
+                        MultidrawBenchReport.parse(
+                            query.runBench(
+                                mgDirectory,
+                                angleDirectory.orEmpty(),
+                                startSections,
+                                maxSections,
+                            ),
+                        )
+                    }.getOrElse { MultidrawBenchReport(emptyMap(), error = queryFailure(it)) }
+                }
+                val polling = launch {
+                    while (isActive) {
+                        delay(BENCH_PROGRESS_POLL_MS)
+                        val raw = withContext(Dispatchers.IO) {
+                            runCatching { query.benchProgress() }.getOrDefault(-1)
+                        }
+                        val progress = MGBench.decodeProgress(raw) ?: continue
+                        val running = mutableBenchState.value as? BenchState.Running ?: break
+                        mutableBenchState.value = running.copy(
+                            progress = progress.fraction,
+                            attempt = progress.attempt.coerceIn(1, BENCH_MAX_ATTEMPTS),
+                        )
+                    }
+                }
+                try {
+                    measuring.await()
+                } finally {
+                    polling.cancel()
+                }
+            }
+        }
+    } catch (e: Exception) {
+        MultidrawBenchReport(timings = emptyMap(), error = queryFailure(e))
+    }
+
+    /**
+     * 渲染器报的错翻成人话。
+     *
+     * "context-lost" 是其中最要紧的一个：驱动在测量途中把上下文丢了，之后每次查询都
+     * 回零、每次绘制都成空操作，所以那之后的数字是虚构的，而依赖前置条件的方案会因为
+     * 读到零而"回退"，看上去就像设备不支持。跑分因此整体作废，而不是交出半份结果。
+     *
+     * 走到这里说明退让也没救回来：[runBenchWithBackoff] 已经在更小的场景上重来过了。
+     */
+    private fun benchErrorMessage(error: String): String = when (error) {
+        "context-lost" -> context.getString(R.string.md_bench_context_lost)
+        else -> context.getString(R.string.md_bench_failed, error)
+    }
+
+    /**
+     * 查询进程失败时给用户看的那句话。
+     *
+     * DeadObjectException 是最要紧的一种：查询进程没了，几乎总是渲染器在里面崩了。
+     * 把它说成人话，而不是把异常类名甩给用户——而且这恰恰是隔离进程挣来的东西，
+     * 换在以前这一下会把整个 App 带走。
+     */
+    private fun queryFailure(e: Throwable): String = when (e) {
+        is android.os.DeadObjectException -> context.getString(R.string.md_bench_process_died)
+        else -> e.message ?: e.javaClass.simpleName
+    }
+
+    /**
+     * 这次测量与 ANGLE 的关系需要说明吗？
+     *
+     * 依据是渲染器的自报而不是本 App 的意图：借没借是意图，加载没加载上是事实，
+     * 两者对不上的时候恰恰是最需要说明的时候。
+     */
+    private fun benchAngleNote(report: MultidrawBenchReport, borrowed: Boolean): BenchAngleNote? = when {
+        borrowed && report.angleInUse -> null // 借了也用上了，如预期
+        borrowed && report.angleConfigured == AngleConfig.EnableIfPossible.wire && !report.angleSupported ->
+            BenchAngleNote.BorrowUnsupported
+        borrowed -> BenchAngleNote.BorrowFailed
+        report.wrongDriver -> BenchAngleNote.SystemInsteadOfAngle
+        else -> null
+    }
+
+    /**
+     * 采用跑分给出的排序：每个测出结果的函数各自启用例外，写入自己那份顺序。
+     *
+     * 全局排序原样不动——它是「没有单独说法的函数走这里」的兜底，跑分说不了它的话。
+     */
+    fun adoptBenchResult() {
+        val done = mutableBenchState.value as? BenchState.Done ?: return
+        update { config ->
+            val multidraw = done.rankings.entries.fold(config.multidraw) { settings, (entry, ranking) ->
+                settings.withExceptionOrder(entry, ranking.map { it.item })
+            }
+            config.copy(multidraw = multidraw)
+        }
+        mutableBenchState.value = null
+    }
+
+    fun dismissBench() {
+        if (mutableBenchState.value is BenchState.Running) return // 跑分中断没有意义，让它跑完
+        mutableBenchState.value = null
     }
 
     // ---- 首页配置摘要 ----
@@ -646,16 +1070,73 @@ class AppController(
     private val mutableGlInfoLoading = MutableStateFlow(false)
     val glInfoLoading: StateFlow<Boolean> = mutableGlInfoLoading.asStateFlow()
 
+    /**
+     * 这份 GL 信息是经谁读出来的。
+     *
+     * [Borrowed] 与 [BorrowIneffective] 的分界来自渲染器的自报（信息文本里的
+     * "ANGLE in use" 一行），不是「传没传目录」——传了目录而设备不支持、或加载失败时，
+     * 渲染器照样退回系统驱动，此时页面必须说实话。老渲染器没有这行自报，只好按意图归类。
+     */
+    enum class GlInfoAngle {
+        /** 没借，读的就是系统驱动。 */
+        System,
+
+        /** 借了，渲染器确认用上了。 */
+        Borrowed,
+
+        /** 借了，但没用上（设备不支持或加载失败），实际读的是系统驱动。 */
+        BorrowIneffective,
+    }
+
+    private val mutableGlInfoAngle = MutableStateFlow(GlInfoAngle.System)
+
+    /** 当前这份信息经谁读出。 */
+    val glInfoAngle: StateFlow<GlInfoAngle> = mutableGlInfoAngle.asStateFlow()
+
+    /**
+     * 配置要 ANGLE，而当前这份信息是在系统驱动上查的——它讲的不是游戏里的那个驱动。
+     *
+     * 进页面不弹窗：借 ANGLE 是把别的应用的原生代码载进查询进程，这种事不该在用户只想
+     * 看一眼信息的时候自己发生。所以先照实查一份、把话说明白，要不要借由用户点。
+     * 借过而未生效（[GlInfoAngle.BorrowIneffective]）不再劝借：再借一次也是同样下场。
+     */
+    val glInfoNeedsAngle: StateFlow<Boolean> =
+        combine(glInfo, glInfoAngle, configStore.config) { info, angle, _ ->
+            info != null && angle == GlInfoAngle.System && benchNeedsAngle()
+        }.stateIn(scope, SharingStarted.Eagerly, false)
+
     /** 每次进入 GL 信息页都重新查询（渲染器库可能刚被游戏更新过）。 */
-    fun loadGlInfo() {
+    fun loadGlInfo() = startGlInfo(null)
+
+    /** 「借 ANGLE 重新查一次」：先问信任谁，再查。 */
+    fun reloadGlInfoWithAngle() {
+        if (mutableGlInfoLoading.value) return
+        promptForAngle(AngleUse.GlInfo)
+    }
+
+    private fun startGlInfo(angleDirectory: String?) {
         if (mutableGlInfoLoading.value) return
         mutableGlInfoLoading.value = true
         mutableGlInfo.value = null
         scope.launch {
             val directory = app.cacheExporter.export().getOrElse { app.cacheExporter.directory }
-            // dlopen + 创建 EGL 上下文是重活，别放在主线程上。
-            val info = withContext(Dispatchers.Default) { MGInfoGetter.info(directory) }
+            // 一次性查询进程（见 MgQuery）：不然本进程里第一次查询的驱动会钉死后面每一次。
+            val info = try {
+                mgQuery.use { query ->
+                    withContext(Dispatchers.IO) { query.glInfo(directory.path, angleDirectory.orEmpty()) }
+                }
+            } catch (e: Exception) {
+                "Error: ${queryFailure(e)}"
+            }
             mutableGlInfo.value = info
+            mutableGlInfoAngle.value = when {
+                angleDirectory == null -> GlInfoAngle.System
+                // 渲染器自报了用没用上，照它说的办。
+                info.contains("ANGLE in use: yes") -> GlInfoAngle.Borrowed
+                info.contains("ANGLE in use:") -> GlInfoAngle.BorrowIneffective
+                // 老渲染器没有自报，只能按意图归类——历史行为，宁可标成借到。
+                else -> GlInfoAngle.Borrowed
+            }
             mutableGlInfoLoading.value = false
         }
     }
@@ -765,5 +1246,30 @@ class AppController(
 
         const val CUSTOM_GL_VERSION_COOLDOWN_SECONDS = 41
         const val REMOVE_COOLDOWN_SECONDS = 10
+
+        /** 跑分进度的轮询间隔。native 那边是个原子计数器，问一次几乎不要钱。 */
+        private const val BENCH_PROGRESS_POLL_MS = 100L
+
+        /** 与 native 的 BENCH_MAX_ATTEMPTS 对齐：抖得压不下去时最多重测这么多次。 */
+        const val BENCH_MAX_ATTEMPTS = 4
+
+        /**
+         * 起手的场景规模，与 native 的 BENCH_START_SECTIONS 对齐。
+         *
+         * 每次点击都从这里起步、从这里重新往上探，不记上一次探到哪。
+         */
+        private const val BENCH_START_SECTIONS = 256
+
+        /** 小到这个地步还撑爆，问题就不在场景大小上了。对齐 native 的 BENCH_MIN_SECTIONS。 */
+        private const val BENCH_MIN_SECTIONS = 32
+
+        /**
+         * 最多这样退让几次。
+         *
+         * 天花板不是一条硬线——同一台机器忙起来能提前几百个 section 撞上——所以退一步之后
+         * 再崩一次是正常的。三次之后还崩就不是场景大小的事了，报错比接着试更诚实，何况
+         * 每一次都要让用户干等十几秒。
+         */
+        private const val BENCH_MAX_BACKOFFS = 3
     }
 }
