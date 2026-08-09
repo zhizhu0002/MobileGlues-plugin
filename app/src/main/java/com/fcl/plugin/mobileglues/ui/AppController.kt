@@ -700,6 +700,37 @@ class AppController(
         startMultidrawBench(target, null)
     }
 
+    /**
+     * 从 adb 直接跑分,不经过界面。没有任何入口指向它——它存在是为了让一次跑分能被脚本
+     * 驱动,而不是靠猜坐标点屏幕。
+     *
+     *   adb shell am start -n com.fcl.plugin.mobileglues/.MainActivity \
+     *       --es mg_bench all            # 或某个函数名,见 MultidrawEntry.glFunction
+     *       --es mg_angle borrow         # borrow=用记住的那个来源 / system=系统驱动
+     *
+     * 与 [runMultidrawBench] 的区别只有一处:它不弹来源选择框。自动化点不掉对话框,而
+     * 这个入口的全部意义就是不需要有人在场。[angle] 为 borrow 时用上次记住的来源,没记住
+     * 就退回系统驱动并在结果里如实写明——和用户自己选「用系统驱动测」是同一条路径。
+     */
+    fun runMultidrawBenchHeadless(entryName: String?, angle: String?) {
+        if (mutableBenchState.value is BenchState.Running) return
+        val target = entryName
+            ?.takeUnless { it.isEmpty() || it.equals("all", ignoreCase = true) }
+            ?.let { name -> MultidrawEntry.entries.firstOrNull { it.glFunction.equals(name, true) } }
+            ?.let { BenchTarget.Entry(it) }
+            ?: BenchTarget.AllEntries
+
+        val borrow = angle == null || angle.equals("borrow", ignoreCase = true)
+        val dir = if (borrow && benchNeedsAngle()) {
+            val last = pluginConfig.angleSourcePackage.value
+            val found = AngleProvider.sources(context)
+            (found.firstOrNull { it.packageName == last } ?: found.firstOrNull())?.libraryDir
+        } else {
+            null
+        }
+        startMultidrawBench(target, dir)
+    }
+
     /** 用户选定了这一次要信任的来源：记下它（下次排最前），然后把刚才拦下的事接着做。 */
     fun confirmAngleSource(source: AngleSource) {
         val pending = mutableAngleSourcePrompt.value ?: return

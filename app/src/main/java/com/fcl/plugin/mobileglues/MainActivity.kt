@@ -64,6 +64,27 @@ class MainActivity : ComponentActivity(), AuthFlowLauncher {
 
         controller = AppController(application as MGApplication, this, this)
         setContent { MobileGluesApp(controller) }
+        consumeHeadlessRequest(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        consumeHeadlessRequest(intent)
+    }
+
+    /**
+     * adb 直接发起的跑分。没有界面入口——见 AppController.runMultidrawBenchHeadless。
+     *
+     * extra 消费后就从 Intent 上抹掉:旋转屏幕会带着同一个 Intent 重建 Activity,不抹掉
+     * 就会再跑一次。
+     */
+    private fun consumeHeadlessRequest(intent: Intent?) {
+        val entry = intent?.getStringExtra(EXTRA_BENCH) ?: return
+        intent.removeExtra(EXTRA_BENCH)
+        val angle = intent.getStringExtra(EXTRA_ANGLE)
+        intent.removeExtra(EXTRA_ANGLE)
+        controller.runMultidrawBenchHeadless(entry, angle)
     }
 
     override fun onResume() {
@@ -115,5 +136,10 @@ class MainActivity : ComponentActivity(), AuthFlowLauncher {
     override fun exitApp() {
         finishAffinity()
         exitProcess(0)
+    }
+
+    private companion object {
+        const val EXTRA_BENCH = "mg_bench"
+        const val EXTRA_ANGLE = "mg_angle"
     }
 }
