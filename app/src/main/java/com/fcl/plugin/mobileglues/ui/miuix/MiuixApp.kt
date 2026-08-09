@@ -31,6 +31,11 @@ import com.fcl.plugin.mobileglues.R
 import com.fcl.plugin.mobileglues.ui.AppController
 import com.fcl.plugin.mobileglues.ui.AppSubPage
 import com.fcl.plugin.mobileglues.ui.AppTab
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import top.yukonga.miuix.kmp.basic.NavigationRail
+import top.yukonga.miuix.kmp.basic.NavigationRailItem
+import com.fcl.plugin.mobileglues.ui.Responsive
 import top.yukonga.miuix.kmp.basic.NavigationBar
 import top.yukonga.miuix.kmp.basic.NavigationBarItem
 import top.yukonga.miuix.kmp.basic.Scaffold
@@ -79,6 +84,9 @@ fun MiuixApp(controller: AppController) {
 
         BackHandler(enabled = subPage != null) { controller.navigateBack() }
 
+        // 垂直方向紧张（通常是手机横屏）时导航让到侧边，理由与 Material 皮肤相同：
+        // 底栏吃掉的是横屏下最稀缺的高度。判断的是高度而不是朝向，见 Responsive。
+        val heightCompact = Responsive.isHeightCompact()
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             // Miuix 的语义与 MD3 相反：页面是 surface（深色下是纯黑），卡片才是 surfaceContainer。
@@ -87,7 +95,7 @@ fun MiuixApp(controller: AppController) {
             snackbarHost = { SnackbarHost(snackbarHostState) },
             bottomBar = {
                 AnimatedVisibility(
-                    visible = subPage == null,
+                    visible = subPage == null && !heightCompact,
                     enter = slideInVertically { it } + fadeIn(),
                     exit = slideOutVertically { it } + fadeOut(),
                 ) {
@@ -97,12 +105,20 @@ fun MiuixApp(controller: AppController) {
         ) { innerPadding ->
             // 对话框宿主要在 Scaffold 之内：Miuix 的弹窗渲染进 Scaffold 提供的 popup host。
             Box(modifier = Modifier.fillMaxSize()) {
+                Row(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+                    AnimatedVisibility(
+                        visible = subPage == null && heightCompact,
+                        enter = slideInHorizontally { -it } + fadeIn(),
+                        exit = slideOutHorizontally { -it } + fadeOut(),
+                    ) {
+                        MiuixNavigationRail(current = tab, onSelect = controller::navigateTab)
+                    }
                 // 每页的滚动位置各自存一份：从子页面退回来时，列表还停在原处。
                 val pageState = rememberSaveableStateHolder()
                 AnimatedContent(
                     targetState = subPage ?: tab,
                     transitionSpec = { miuixPageTransition(initialState, targetState) },
-                    modifier = Modifier.fillMaxSize().padding(innerPadding),
+                    modifier = Modifier.fillMaxSize(),
                     label = "page",
                 ) { destination ->
                     pageState.SaveableStateProvider(destination) {
@@ -117,6 +133,7 @@ fun MiuixApp(controller: AppController) {
                             }
                         }
                     }
+                }
                 }
                 MiuixDialogHost(controller)
                 // 跑分可以从主页的提示、设置页的按钮、切驱动后的 snackbar 三处发起，
@@ -148,6 +165,34 @@ private fun MiuixNavigationBar(current: AppTab, onSelect: (AppTab) -> Unit) {
             icon = rememberVectorIcon(R.drawable.ic_info),
             label = stringResource(R.string.nav_info),
         )
+    }
+}
+
+/** 底栏的侧边形态，条目与顺序同一份语义——两种形态永远不会各说各话。 */
+@Composable
+private fun MiuixNavigationRail(current: AppTab, onSelect: (AppTab) -> Unit) {
+    NavigationRail {
+        // 同 Material 侧的理由：底栏条目水平居中，侧边形态就该垂直居中。
+        Spacer(Modifier.weight(1f))
+        NavigationRailItem(
+            selected = current == AppTab.Home,
+            onClick = { onSelect(AppTab.Home) },
+            icon = rememberVectorIcon(R.drawable.ic_home),
+            label = stringResource(R.string.nav_home),
+        )
+        NavigationRailItem(
+            selected = current == AppTab.Settings,
+            onClick = { onSelect(AppTab.Settings) },
+            icon = rememberVectorIcon(R.drawable.ic_settings),
+            label = stringResource(R.string.nav_settings),
+        )
+        NavigationRailItem(
+            selected = current == AppTab.Info,
+            onClick = { onSelect(AppTab.Info) },
+            icon = rememberVectorIcon(R.drawable.ic_info),
+            label = stringResource(R.string.nav_info),
+        )
+        Spacer(Modifier.weight(1f))
     }
 }
 

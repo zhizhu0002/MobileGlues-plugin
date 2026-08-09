@@ -15,6 +15,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -73,11 +77,22 @@ fun MaterialHomePage(controller: AppController) {
     var entered by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { entered = true }
 
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-        modifier = Modifier.fillMaxSize().padding(horizontal = ScreenPadding),
-    ) {
+    // 可滚动，并且只在放得下时才居中。这一页的内容高度是固定的（字标、授权状态、设备
+    // 信息、配置摘要，加上它们之间的定距），竖屏放得下，横屏放不下——原来它既不滚动又
+    // 强制居中，于是横屏下两端被裁掉且够不到。verticalScroll 加上 heightIn(min) 让它在
+    // 高屏上照旧居中，在矮屏上变成一列可滚的内容。
+    val scroll = rememberScrollState()
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val minHeight = maxHeight
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(scroll)
+                .heightIn(min = minHeight)
+                .padding(horizontal = ScreenPadding),
+        ) {
         EnterUp(entered, delayMillis = 0) { Wordmark(controller.appVersionName) }
 
         Spacer(Modifier.height(28.dp))
@@ -127,8 +142,10 @@ fun MaterialHomePage(controller: AppController) {
             }
         }
 
-        // 视觉重心略高于几何中心：底部这段留白把整组内容往上顶。
-        Spacer(Modifier.height(72.dp))
+            // 视觉重心略高于几何中心：底部这段留白把整组内容往上顶。矮屏上它是滚动
+            // 内容的一部分，不再是够不到的死区。
+            Spacer(Modifier.height(72.dp))
+        }
     }
 }
 

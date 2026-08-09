@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -28,6 +29,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fcl.plugin.mobileglues.R
 import com.fcl.plugin.mobileglues.settings.AuthMethod
 import com.fcl.plugin.mobileglues.ui.AppController
+import com.fcl.plugin.mobileglues.ui.Responsive
 import com.fcl.plugin.mobileglues.ui.AuthPrompt
 import com.fcl.plugin.mobileglues.ui.Farewell
 import com.fcl.plugin.mobileglues.ui.PrivacySections
@@ -217,7 +219,11 @@ private fun PrivacyConsentDialog(onAccept: () -> Unit, onDecline: () -> Unit) {
         properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
         title = { Text(stringResource(R.string.privacy_consent_title)) },
         text = {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = Responsive.dialogMaxContentHeight())
+                    .verticalScroll(rememberScrollState()),
+            ) {
                 Text(
                     text = stringResource(R.string.privacy_intro),
                     style = MaterialTheme.typography.bodyMedium,
@@ -348,7 +354,12 @@ private fun LinkChoiceDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
-            Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = Responsive.dialogMaxContentHeight())
+                    .verticalScroll(rememberScrollState()),
+            ) {
                 // 一句都没有也行：三个仓库的名字自己说得清楚，硬凑一句解释反而是噪音。
                 if (message != null) {
                     Text(

@@ -14,6 +14,14 @@ enum class UiStyle(val key: String) {
 
     companion object {
         fun ofKey(key: String?): UiStyle = entries.firstOrNull { it.key == key } ?: Material
+
+        /**
+         * 没选过时给哪一套。小米自家系统上给 Miuix——那里它和系统本身是同一种长相。
+         *
+         * 只是默认值：一旦用户在设置里选过，存下来的那个选择永远优先，包括 HyperOS 上
+         * 主动选了 Material 的用户。
+         */
+        fun default(): UiStyle = if (SystemUi.isMiuiOrHyperOs) Miuix else Material
     }
 }
 
@@ -59,8 +67,11 @@ class PluginConfigStore(context: Context) {
     private val prefs: SharedPreferences =
         context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
-    private val mutableUiStyle =
-        MutableStateFlow(UiStyle.ofKey(prefs.getString(KEY_UI_STYLE, null)))
+    // 区分「没选过」和「选了 material」：前者要跟随系统，后者是用户的明确意愿。
+    // prefs.getString 的 null 正好把两者分开，ofKey 做不到（它把 null 也答成 Material）。
+    private val mutableUiStyle = MutableStateFlow(
+        prefs.getString(KEY_UI_STYLE, null)?.let { UiStyle.ofKey(it) } ?: UiStyle.default(),
+    )
     val uiStyle: StateFlow<UiStyle> = mutableUiStyle.asStateFlow()
 
     fun setUiStyle(style: UiStyle) {

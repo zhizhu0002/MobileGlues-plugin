@@ -52,7 +52,7 @@
     <string name="md_bench_nothing">no strategy could be measured on this device</string>
     <string name="md_reset_default">Restore default</string>
     <string name="md_bench_running_title">Benchmark</string>
-    <string name="md_bench_running_msg">Measuring each strategy in turn. This takes about 8 seconds; keep the screen on and leave the device idle.</string>
+    <string name="md_bench_running_msg">Measuring each strategy in turn. The base budget is about 8 seconds; unsteady readings grow the scene and extend the run, up to about a minute. Keep the screen on and leave the device idle.</string>
     <string name="md_bench_result_title">Benchmark results</string>
     <string name="md_bench_result_all_intro">Each function was measured separately and sorted fastest first (×1.00 is fastest within that function). Adopting enables an independent order for each function below; the global order is unchanged.</string>
     <string name="md_bench_result_entry_intro">Strategies for %1$s, sorted fastest first by measured cost (×1.00 is fastest). Adopt as this function\'s independent order?</string>
@@ -61,6 +61,7 @@
     <string name="md_bench_quality">%1$d rounds per strategy, run-to-run spread ±%2$s%%</string>
     <string name="md_bench_noisy">Measured %1$d times; the spread never reached the ±15%% required for a confident ranking. The steadiest run was ±%2$s%%. Strategies with similar results may be ordered incorrectly. Re-running with the device idle and cool will give a better result.</string>
     <string name="md_bench_running_retry">Spread too wide to rank. Re-measuring on a larger scene (%1$d/%2$d)…</string>
+    <string name="md_bench_single_candidate">Only one strategy could be measured for this function. There is no ordering to speak of; the figure is informational.</string>
     <string name="md_bench_running_smaller">GL context lost; that run is void. Restarting at %1$d sections…</string>
     <string name="md_bench_adopt_anyway">Adopt anyway</string>
     <string name="md_bench_adopt">Adopt</string>

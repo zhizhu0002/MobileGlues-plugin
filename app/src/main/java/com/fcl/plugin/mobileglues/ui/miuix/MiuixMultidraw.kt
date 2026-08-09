@@ -46,6 +46,7 @@ import com.fcl.plugin.mobileglues.settings.MultidrawEntry
 import com.fcl.plugin.mobileglues.settings.MultidrawOrderItem
 import com.fcl.plugin.mobileglues.settings.MultidrawSettings
 import com.fcl.plugin.mobileglues.ui.AppController
+import com.fcl.plugin.mobileglues.ui.Responsive
 import com.fcl.plugin.mobileglues.ui.DragReorderColumn
 import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Icon
@@ -285,7 +286,7 @@ private fun MiuixAngleSourceDialog(controller: AppController) {
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Column(
-                modifier = Modifier.fillMaxWidth().heightIn(max = 420.dp)
+                modifier = Modifier.fillMaxWidth().heightIn(max = Responsive.dialogMaxContentHeight())
                     .verticalScroll(rememberScrollState()),
             ) {
                 Text(
@@ -426,7 +427,7 @@ fun MiuixMultidrawBenchDialogs(controller: AppController) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 420.dp)
+                    .heightIn(max = Responsive.dialogMaxContentHeight())
                     .verticalScroll(rememberScrollState()),
             ) {
                 Text(
@@ -469,6 +470,14 @@ fun MiuixMultidrawBenchDialogs(controller: AppController) {
                     }
                     ranking.forEachIndexed { index, ranked ->
                         MiuixRankedRow(index + 1, ranked.item.label(context).toString(), ranked.relativeCost)
+                    }
+                    // 只有一个方案测得出时，「排名」名不副实——没有可比较的对象。
+                    if (ranking.count { it.relativeCost != null } == 1) {
+                        Text(
+                            text = stringResource(R.string.md_bench_single_candidate),
+                            style = MiuixTheme.textStyles.footnote2,
+                            color = MiuixTheme.colorScheme.onSurfaceSecondary,
+                        )
                     }
                     // 成色跟着它描述的那份排名走：抖的是某个函数，不是整场跑分。
                     MiuixBenchQualityNote(doneState.quality[entry])

@@ -21,6 +21,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
+import com.fcl.plugin.mobileglues.ui.Responsive
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
@@ -82,6 +87,10 @@ fun MaterialApp(controller: AppController) {
         // 子页面吃掉返回键；没有子页面时交还系统（退出应用）。
         BackHandler(enabled = subPage != null) { controller.navigateBack() }
 
+        // 垂直方向紧张（通常就是手机横屏）时，导航从底部让到侧边：底栏在横屏吃掉的是
+        // 本来就稀缺的高度，而左侧的宽度反而有富余。判断的是高度而不是朝向，理由见
+        // Responsive。
+        val heightCompact = Responsive.isHeightCompact()
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Scaffold(
                 containerColor = MaterialTheme.colorScheme.background,
@@ -89,7 +98,7 @@ fun MaterialApp(controller: AppController) {
                 snackbarHost = { SnackbarHost(snackbarHostState) },
                 bottomBar = {
                     AnimatedVisibility(
-                        visible = subPage == null,
+                        visible = subPage == null && !heightCompact,
                         enter = slideInVertically { it } + fadeIn(),
                         exit = slideOutVertically { it } + fadeOut(),
                     ) {
@@ -97,23 +106,32 @@ fun MaterialApp(controller: AppController) {
                     }
                 },
             ) { innerPadding ->
-                // 每页的滚动位置各自存一份：从子页面退回来时，列表还停在原处。
-                val pageState = rememberSaveableStateHolder()
-                AnimatedContent(
-                    targetState = subPage ?: tab,
-                    transitionSpec = { pageTransition(initialState, targetState) },
-                    modifier = Modifier.fillMaxSize().padding(innerPadding),
-                    label = "page",
-                ) { destination ->
-                    pageState.SaveableStateProvider(destination) {
-                        Column(modifier = Modifier.fillMaxSize()) {
-                            when (destination) {
-                                AppTab.Home -> MaterialHomePage(controller)
-                                AppTab.Settings -> MaterialSettingsPage(controller)
-                                AppTab.Info -> MaterialInfoPage(controller)
-                                AppSubPage.GlInfo -> MaterialGlInfoPage(controller)
-                                AppSubPage.Privacy -> MaterialPrivacyPage(controller)
-                                AppSubPage.ThirdParty -> MaterialThirdPartyPage(controller)
+                Row(modifier = Modifier.fillMaxSize().padding(innerPadding)) {
+                    AnimatedVisibility(
+                        visible = subPage == null && heightCompact,
+                        enter = slideInHorizontally { -it } + fadeIn(),
+                        exit = slideOutHorizontally { -it } + fadeOut(),
+                    ) {
+                        MaterialNavigationRail(current = tab, onSelect = controller::navigateTab)
+                    }
+                    // 每页的滚动位置各自存一份：从子页面退回来时，列表还停在原处。
+                    val pageState = rememberSaveableStateHolder()
+                    AnimatedContent(
+                        targetState = subPage ?: tab,
+                        transitionSpec = { pageTransition(initialState, targetState) },
+                        modifier = Modifier.fillMaxSize(),
+                        label = "page",
+                    ) { destination ->
+                        pageState.SaveableStateProvider(destination) {
+                            Column(modifier = Modifier.fillMaxSize()) {
+                                when (destination) {
+                                    AppTab.Home -> MaterialHomePage(controller)
+                                    AppTab.Settings -> MaterialSettingsPage(controller)
+                                    AppTab.Info -> MaterialInfoPage(controller)
+                                    AppSubPage.GlInfo -> MaterialGlInfoPage(controller)
+                                    AppSubPage.Privacy -> MaterialPrivacyPage(controller)
+                                    AppSubPage.ThirdParty -> MaterialThirdPartyPage(controller)
+                                }
                             }
                         }
                     }
@@ -141,6 +159,26 @@ private fun MaterialNavigationBar(current: AppTab, onSelect: (AppTab) -> Unit) {
                 label = { Text(stringResource(label)) },
             )
         }
+    }
+}
+
+/** 底栏的侧边形态，条目与顺序同一份声明——两种形态永远不会各说各话。 */
+@Composable
+private fun MaterialNavigationRail(current: AppTab, onSelect: (AppTab) -> Unit) {
+    NavigationRail {
+        // Rail 默认从顶部排；底栏的条目是水平居中的，侧边形态没理由不垂直居中。
+        Spacer(Modifier.weight(1f))
+        NavigationDestinations.forEach { (destination, icon, label) ->
+            NavigationRailItem(
+                selected = current == destination,
+                onClick = { onSelect(destination) },
+                icon = {
+                    Icon(painter = painterResource(icon), contentDescription = stringResource(label))
+                },
+                label = { Text(stringResource(label)) },
+            )
+        }
+        Spacer(Modifier.weight(1f))
     }
 }
 

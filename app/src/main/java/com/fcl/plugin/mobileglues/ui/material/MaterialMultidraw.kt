@@ -27,6 +27,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -48,6 +50,7 @@ import com.fcl.plugin.mobileglues.settings.MultidrawOrderItem
 import com.fcl.plugin.mobileglues.settings.MultidrawSettings
 import com.fcl.plugin.mobileglues.settings.RankedItem
 import com.fcl.plugin.mobileglues.ui.AppController
+import com.fcl.plugin.mobileglues.ui.Responsive
 import com.fcl.plugin.mobileglues.ui.DragReorderColumn
 import androidx.compose.ui.unit.dp
 import java.util.Locale
@@ -102,7 +105,7 @@ fun ColumnScope.MultidrawOrderContent(controller: AppController, config: MGConfi
     AnimatedVisibility(visible = settings.globalCustomized, enter = fadeIn(), exit = fadeOut()) {
         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
             Spacer(Modifier.weight(1f))
-            TextButton(onClick = controller::resetMultidrawGlobalOrder) {
+            OutlinedButton(onClick = controller::resetMultidrawGlobalOrder) {
                 Text(stringResource(R.string.md_reset_default))
             }
         }
@@ -119,7 +122,9 @@ fun ColumnScope.MultidrawOrderContent(controller: AppController, config: MGConfi
 
     // 跑分只测得出「这个函数上哪个方案快」，那就把结果按函数交出去，别硬合成一份全局顺序。
     Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
-        TextButton(onClick = { controller.runMultidrawBench(AppController.BenchTarget.AllEntries) }) {
+        FilledTonalButton(
+            onClick = { controller.runMultidrawBench(AppController.BenchTarget.AllEntries) },
+        ) {
             Text(stringResource(R.string.md_bench_run_all))
         }
     }
@@ -157,7 +162,7 @@ fun ColumnScope.MultidrawOrderContent(controller: AppController, config: MGConfi
                     )
                 }
                 Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp)) {
-                    TextButton(
+                    FilledTonalButton(
                         onClick = {
                             controller.runMultidrawBench(AppController.BenchTarget.Entry(entry))
                         },
@@ -170,7 +175,7 @@ fun ColumnScope.MultidrawOrderContent(controller: AppController, config: MGConfi
                         enter = fadeIn(),
                         exit = fadeOut(),
                     ) {
-                        TextButton(onClick = { controller.resetMultidrawExceptionOrder(entry) }) {
+                        OutlinedButton(onClick = { controller.resetMultidrawExceptionOrder(entry) }) {
                             Text(stringResource(R.string.md_reset_default))
                         }
                     }
@@ -281,7 +286,11 @@ private fun AngleSourceDialog(controller: AppController) {
         onDismissRequest = controller::dismissAngleSourcePrompt,
         title = { Text(stringResource(R.string.md_angle_title)) },
         text = {
-            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = Responsive.dialogMaxContentHeight())
+                    .verticalScroll(rememberScrollState()),
+            ) {
                 Text(stringResource(R.string.md_angle_intro))
                 Spacer(Modifier.heightIn(min = 12.dp))
                 if (pending.sources.isEmpty()) {
@@ -389,7 +398,11 @@ fun MultidrawBenchDialogs(controller: AppController) {
             onDismissRequest = controller::dismissBench,
             title = { Text(stringResource(R.string.md_bench_result_title)) },
             text = {
-                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Column(
+                    modifier = Modifier
+                        .heightIn(max = Responsive.dialogMaxContentHeight())
+                        .verticalScroll(rememberScrollState()),
+                ) {
                     Text(
                         text = when (val target = s.target) {
                             is AppController.BenchTarget.AllEntries ->
@@ -424,6 +437,15 @@ fun MultidrawBenchDialogs(controller: AppController) {
                         }
                         ranking.forEachIndexed { index, ranked ->
                             RankedRow(index + 1, ranked.item.label(context).toString(), ranked.relativeCost)
+                        }
+                        // 只有一个方案测得出时，「排名」这个词就名不副实——没有可比较的对象，
+                        // ×1.00 也失去含义。说破，免得用户把孤例当选择。
+                        if (ranking.count { it.relativeCost != null } == 1) {
+                            Text(
+                                text = stringResource(R.string.md_bench_single_candidate),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                         // 成色跟着它描述的那份排名走：抖的是某个函数，不是整场跑分。
                         BenchQualityNote(s.quality[entry])

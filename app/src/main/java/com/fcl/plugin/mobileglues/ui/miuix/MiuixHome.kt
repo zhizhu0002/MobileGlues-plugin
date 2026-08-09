@@ -15,6 +15,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -72,11 +76,21 @@ fun MiuixHomePage(controller: AppController) {
     var entered by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { entered = true }
 
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-        modifier = Modifier.fillMaxSize().padding(horizontal = MiuixScreenPadding + 8.dp),
-    ) {
+    // 可滚动，并且只在放得下时才居中。这一页的内容高度是固定的，竖屏放得下，横屏放
+    // 不下——原来它既不滚动又强制居中，于是横屏下两端被裁掉且够不到。verticalScroll
+    // 加上 heightIn(min) 让它在高屏上照旧居中，在矮屏上变成一列可滚的内容。
+    val scroll = rememberScrollState()
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val minHeight = maxHeight
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(scroll)
+                .heightIn(min = minHeight)
+                .padding(horizontal = MiuixScreenPadding + 8.dp),
+        ) {
         EnterUp(entered, delayMillis = 0) { Wordmark(controller.appVersionName) }
 
         Spacer(Modifier.height(28.dp))
@@ -126,7 +140,9 @@ fun MiuixHomePage(controller: AppController) {
             }
         }
 
-        Spacer(Modifier.height(72.dp))
+            // 底部留白把重心顶高一点；矮屏上它是滚动内容的一部分，不再是够不到的死区。
+            Spacer(Modifier.height(72.dp))
+        }
     }
 }
 

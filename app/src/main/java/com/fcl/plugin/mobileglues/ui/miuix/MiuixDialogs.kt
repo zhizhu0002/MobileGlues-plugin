@@ -29,6 +29,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fcl.plugin.mobileglues.R
 import com.fcl.plugin.mobileglues.settings.AuthMethod
 import com.fcl.plugin.mobileglues.ui.AppController
+import com.fcl.plugin.mobileglues.ui.Responsive
 import com.fcl.plugin.mobileglues.ui.AuthPrompt
 import com.fcl.plugin.mobileglues.ui.ConfirmRequest
 import com.fcl.plugin.mobileglues.ui.Farewell
@@ -226,7 +227,7 @@ private fun MiuixPrivacyConsentDialog(onAccept: () -> Unit, onDecline: () -> Uni
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 420.dp)
+                    .heightIn(max = Responsive.dialogMaxContentHeight())
                     .verticalScroll(rememberScrollState()),
             ) {
                 Text(
@@ -301,7 +302,7 @@ private fun MiuixConfirmDialog(request: ConfirmRequest?) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 420.dp)
+                    .heightIn(max = Responsive.dialogMaxContentHeight())
                     .verticalScroll(rememberScrollState()),
             ) {
                 Text(
@@ -352,7 +353,7 @@ private fun MiuixMessageDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 420.dp)
+                    .heightIn(max = Responsive.dialogMaxContentHeight())
                     .verticalScroll(rememberScrollState()),
             ) {
                 Text(
@@ -436,7 +437,7 @@ private fun MiuixLinkChoiceDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(max = 420.dp)
+                    .heightIn(max = Responsive.dialogMaxContentHeight())
                     .verticalScroll(rememberScrollState()),
             ) {
                 links.forEachIndexed { index, link ->
